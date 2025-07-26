@@ -1,0 +1,115 @@
+version: '3.8'
+
+services:
+  # MongoDB Database
+  mongo:
+    image: mongo:7
+    container_name: mercadosniper-mongo-dev
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: devpassword
+      MONGO_INITDB_DATABASE: mercadosniper_dev
+    volumes:
+      - mongo_dev_data:/data/db
+    networks:
+      - mercadosniper-dev-network
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: mercadosniper-redis-dev
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_dev_data:/data
+    networks:
+      - mercadosniper-dev-network
+
+  # FastAPI Backend (Development)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    container_name: mercadosniper-backend-dev
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # Database Configuration
+      DATABASE_URL: mongodb://admin:devpassword@mongo:27017/mercadosniper_dev?authSource=admin
+      DATABASE_NAME: mercadosniper_dev
+      REDIS_URL: redis://redis:6379
+      
+      # Development Configuration
+      DEBUG: true
+      HOST: 0.0.0.0
+      PORT: 8000
+      ALLOWED_ORIGINS: '["http://localhost:3000", "http://127.0.0.1:3000"]'
+      
+      # Scraping Configuration (Faster for development)
+      SCRAPING_DELAY_MIN: 1.0
+      SCRAPING_DELAY_MAX: 2.0
+      SCRAPING_TIMEOUT: 10
+      
+      # Debug Configuration
+      DEBUG_SCRAPING: true
+      DEBUG_SAVE_HTML: false
+      DEBUG_PRINT_RESPONSE: false
+      
+      # Logging
+      LOG_LEVEL: DEBUG
+    depends_on:
+      - mongo
+      - redis
+    volumes:
+      - ./backend:/app
+      - /app/venv
+      - ./backend/logs:/app/logs
+    networks:
+      - mercadosniper-dev-network
+    command: ["uvicorn", "main:socket_app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
+  # Next.js Frontend (Development)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: mercadosniper-frontend-dev
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # API Configuration
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXT_PUBLIC_SOCKET_URL: http://localhost:8000
+      NEXT_PUBLIC_APP_NAME: MercadoSniper Dev
+      NEXT_PUBLIC_APP_VERSION: 1.0.0-dev
+      
+      # Development Configuration
+      NODE_ENV: development
+      NEXT_TELEMETRY_DISABLED: 1
+      WATCHPACK_POLLING: true
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    networks:
+      - mercadosniper-dev-network
+    command: ["npm", "run", "dev"]
+
+volumes:
+  mongo_dev_data:
+    driver: local
+  redis_dev_data:
+    driver: local
+
+networks:
+  mercadosniper-dev-network:
+    driver: bridge 
